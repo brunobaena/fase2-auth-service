@@ -28,9 +28,6 @@ metadata:
     app: auth-service
 data:
   PORT: "8001"
-  DB_HOST: "auth-db.cz8iwao2givk.us-east-2.rds.amazonaws.com"
-  DB_PORT: "5432"
-  POSTGRES_DB: "postgres"
 
 ---
 # -----------------------------------------------------------------------------
@@ -60,8 +57,6 @@ spec:
     template:
       engineVersion: v2
       data:
-        POSTGRES_USER:     "{{ .rds_username }}"
-        POSTGRES_PASSWORD: "{{ .rds_password }}"
         DATABASE_URL: "postgres://{{ .rds_username }}:{{ .rds_password | urlquery }}@auth-db.cz8iwao2givk.us-east-2.rds.amazonaws.com:5432/postgres"
         MASTER_KEY: "{{ .master_key }}"
 
@@ -69,12 +64,12 @@ spec:
   data:
     - secretKey: rds_username
       remoteRef:
-        key: rds!db-bf003a9f-b225-4f3b-9f32-904f6158aadb
+        key: rds!db-ac7b4150-fd80-4179-b574-461102a842f0
         property: username
 
     - secretKey: rds_password
       remoteRef:
-        key: rds!db-bf003a9f-b225-4f3b-9f32-904f6158aadb
+        key: rds!db-ac7b4150-fd80-4179-b574-461102a842f0
         property: password
 
     - secretKey: master_key
@@ -104,19 +99,6 @@ spec:
         app: auth-service
         version: "1.0.0"
     spec:
-      # Preferência de não colocar dois pods no mesmo nó (HA)
-      affinity:
-        podAntiAffinity:
-          preferredDuringSchedulingIgnoredDuringExecution:
-            - weight: 100
-              podAffinityTerm:
-                labelSelector:
-                  matchExpressions:
-                    - key: app
-                      operator: In
-                      values:
-                        - auth-service
-                topologyKey: kubernetes.io/hostname
 
       containers:
         - name: auth-service
@@ -135,35 +117,10 @@ spec:
                 configMapKeyRef:
                   name: auth-service-config
                   key: PORT
-            - name: DB_HOST
-              valueFrom:
-                configMapKeyRef:
-                  name: auth-service-config
-                  key: DB_HOST
-            - name: DB_PORT
-              valueFrom:
-                configMapKeyRef:
-                  name: auth-service-config
-                  key: DB_PORT
-            - name: POSTGRES_DB
-              valueFrom:
-                configMapKeyRef:
-                  name: auth-service-config
-                  key: POSTGRES_DB
 
           # -----------------------------------------------------------------
           # Variáveis SENSÍVEIS — Secret gerenciado pelo ESO
           # -----------------------------------------------------------------
-            - name: POSTGRES_USER
-              valueFrom:
-                secretKeyRef:
-                  name: auth-service-secret
-                  key: POSTGRES_USER
-            - name: POSTGRES_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: auth-service-secret
-                  key: POSTGRES_PASSWORD
             - name: DATABASE_URL
               valueFrom:
                 secretKeyRef:
@@ -232,3 +189,31 @@ spec:
       protocol: TCP
       port: 8001
       targetPort: 8001
+
+---
+# -----------------------------------------------------------------------------
+# 6. INGRESS
+# -----------------------------------------------------------------------------
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: auth-service-ingress
+  namespace: auth
+  annotations:
+    kubernetes.io/ingress.class: "nginx"
+    nginx.ingress.kubernetes.io/use-regex: "true"
+    nginx.ingress.kubernetes.io/rewrite-target: "/$2"
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "30"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
+spec:
+  ingressClassName: nginx
+  rules:
+    - http:
+        paths:
+          - path: /auth(/|$)(.*)
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: auth-service
+                port:
+                  number: 8001
